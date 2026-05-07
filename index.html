@@ -1160,15 +1160,14 @@
             + "<br><b>RAW (first 400 chars):</b><br>" + rawText.substring(0, 400).replace(/</g,'&lt;');
         }
 
-        // ── Parse — handle plain JSON or double-encoded string ──────────────────
+        // ── Parse — strip leading '=' N8N adds from expression syntax ────────────
         let respData = {};
         try {
-          let parsed = JSON.parse(rawText);
-          // N8N Text mode sometimes wraps the string in extra quotes (double-encode)
-          // If parsed result is a string, parse it again
-          if (typeof parsed === 'string') {
-            parsed = JSON.parse(parsed);
-          }
+          // N8N Text mode leaks the '=' from ={{ expr }} into the response body
+          const cleanText = rawText.startsWith('=') ? rawText.slice(1) : rawText;
+          let parsed = JSON.parse(cleanText);
+          // Also handle double-encoded strings just in case
+          if (typeof parsed === 'string') parsed = JSON.parse(parsed);
           respData = parsed;
           if (dbg) dbg.innerHTML += "<br><b>PARSED TYPE:</b> " + typeof respData
             + "<br><b>HAS ROWS:</b> " + Array.isArray(respData.rows)
