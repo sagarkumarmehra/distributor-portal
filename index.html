@@ -1146,23 +1146,35 @@
           // No Content-Type header — browser sets it with boundary automatically
         });
 
-        // Read raw text first, then parse — avoids silent failure from response.json()
+        // Read raw text — most reliable cross-browser approach
         const rawText = await response.text();
 
-        // Write raw response to debug panel so we can diagnose blank-table issue
+        // ── DEBUG: always show what came back from N8N ──────────────────────────
         const dbg = document.getElementById('debug-panel');
         if (dbg) {
           dbg.style.display = 'block';
-          dbg.textContent = "STATUS: " + response.status
-            + "\nCONTENT-TYPE: " + (response.headers.get('content-type') || 'none')
-            + "\nRAW (first 600 chars):\n" + rawText.substring(0, 600);
+          dbg.innerHTML = "<b>STATUS:</b> " + response.status
+            + "<br><b>CONTENT-TYPE:</b> " + (response.headers.get('content-type') || 'none')
+            + "<br><b>RAW LENGTH:</b> " + rawText.length
+            + "<br><b>FIRST CHAR CODE:</b> " + (rawText.charCodeAt(0) || 'empty')
+            + "<br><b>RAW (first 400 chars):</b><br>" + rawText.substring(0, 400).replace(/</g,'&lt;');
         }
 
+        // ── Parse — handle plain JSON or double-encoded string ──────────────────
         let respData = {};
         try {
-          respData = JSON.parse(rawText);
+          let parsed = JSON.parse(rawText);
+          // N8N Text mode sometimes wraps the string in extra quotes (double-encode)
+          // If parsed result is a string, parse it again
+          if (typeof parsed === 'string') {
+            parsed = JSON.parse(parsed);
+          }
+          respData = parsed;
+          if (dbg) dbg.innerHTML += "<br><b>PARSED TYPE:</b> " + typeof respData
+            + "<br><b>HAS ROWS:</b> " + Array.isArray(respData.rows)
+            + "<br><b>ROW COUNT:</b> " + (Array.isArray(respData.rows) ? respData.rows.length : 'n/a');
         } catch (parseErr) {
-          if (dbg) dbg.textContent += "\n\nJSON PARSE ERROR: " + parseErr;
+          if (dbg) dbg.innerHTML += "<br><b style='color:red'>PARSE ERROR:</b> " + parseErr;
         }
 
         if (!response.ok) {
@@ -1172,7 +1184,6 @@
 
         // Success — show preview page with extracted rows
         const rows = Array.isArray(respData.rows) ? respData.rows : [];
-        if (dbg) dbg.textContent += "\n\nROWS PARSED: " + rows.length;
         setStatus(distId, "loading", "Processing…");
         showPreview({ distId, distName, fileName: file.name, rows });
 
