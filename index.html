@@ -997,8 +997,9 @@
 
   <!-- ── Script ─────────────────────────────────────────────────────────────────── -->
   <script>
-    // ─── CONFIG — swap this URL with your live N8N webhook URL ────────────────
+    // ─── CONFIG ────────────────────────────────────────────────────────────────
     const N8N_WEBHOOK_URL = "https://sagar2kumar2h.app.n8n.cloud/webhook/distributor-upload";
+    const N8N_CONFIRM_URL = "https://sagar2kumar2h.app.n8n.cloud/webhook/distributor-confirm";
     const UPLOADER_NAME   = "Sales Rep";      // Replace with logged-in user's name
     const MAX_FILE_BYTES  = 10 * 1024 * 1024; // 10 MB
 
@@ -1143,8 +1144,17 @@
           // No Content-Type header — browser sets it with boundary automatically
         });
 
-        // Parse response JSON once
-        const respData = await response.json().catch(() => ({}));
+        // Read raw text first, then parse — avoids silent failure from response.json()
+        const rawText = await response.text();
+        console.log("[N8N] Status:", response.status);
+        console.log("[N8N] Raw response (first 300 chars):", rawText.substring(0, 300));
+
+        let respData = {};
+        try {
+          respData = JSON.parse(rawText);
+        } catch (parseErr) {
+          console.error("[N8N] JSON parse failed:", parseErr, "| raw:", rawText.substring(0, 200));
+        }
 
         if (!response.ok) {
           const errMsg = respData.error || `Server error (${response.status})`;
@@ -1153,6 +1163,7 @@
 
         // Success — show preview page with extracted rows
         const rows = Array.isArray(respData.rows) ? respData.rows : [];
+        console.log("[N8N] Rows received:", rows.length);
         setStatus(distId, "loading", "Processing…");
         showPreview({ distId, distName, fileName: file.name, rows });
 
@@ -1305,17 +1316,61 @@
       showView('view-preview');
     }
 
-    // ─── Confirm Upload ────────────────────────────────────────────────────────
-    function confirmUpload() {
+    // ─── Confirm Upload — posts rows to Google Sheets only after user approval ──
+    async function confirmUpload() {
       if (!pendingConfirm) { showView('view-main'); return; }
       const { distId, distName, fileName, rows } = pendingConfirm;
 
-      uploadedCount++;
-      document.getElementById('stat-uploaded').textContent = uploadedCount;
-      setStatus(distId, 'success', `Confirmed · ${rows.length} rows · ${fileName}`);
-      showToast('success', `Upload confirmed for ${distName}`);
-      pendingConfirm = null;
-      showView('view-main');
+      // Lock buttons and show submitting state
+      const btnConfirm = document.querySelector('.btn-confirm');
+      const btnCancel  = document.querySelector('.btn-cancel');
+      btnConfirm.disabled = true;
+      btnCancel.disabled  = true;
+      btnConfirm.innerHTML = `
+        <div class="spinner" style="width:15px;height:15px;border-width:2px;border-color:rgba(255,255,255,.4);border-top-color:#fff;"></div>
+        Submitting…`;
+
+      try {
+        const response = await fetch(N8N_CONFIRM_URL, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({
+            distributorId:   distId,
+            distributorName: distName,
+            fileName:        fileName,
+            rows:            rows,
+          }),
+        });
+
+        const rawText = await response.text();
+        console.log('[Confirm] Status:', response.status, '| Body:', rawText.substring(0, 200));
+
+        let respData = {};
+        try { respData = JSON.parse(rawText); } catch (_) {}
+
+        if (!response.ok) {
+          throw new Error(respData.error || `Server error (${response.status})`);
+        }
+
+        // All good — update UI and go back
+        uploadedCount++;
+        document.getElementById('stat-uploaded').textContent = uploadedCount;
+        setStatus(distId, 'success', `Confirmed · ${rows.length} rows · ${fileName}`);
+        showToast('success', `${rows.length} rows written to Google Sheets for ${distName}`);
+        pendingConfirm = null;
+        showView('view-main');
+
+      } catch (err) {
+        console.error('[Confirm error]', err);
+        showToast('error', `Submission failed: ${err.message || 'Please try again.'}`);
+
+        // Restore buttons
+        btnConfirm.disabled = false;
+        btnCancel.disabled  = false;
+        btnConfirm.innerHTML = `
+          <svg viewBox="0 0 16 16"><path fill-rule="evenodd" d="M13.78 4.22a.75.75 0 010 1.06l-7.25 7.25a.75.75 0 01-1.06 0L2.22 9.28a.75.75 0 011.06-1.06L6 10.94l6.72-6.72a.75.75 0 011.06 0z" clip-rule="evenodd"/></svg>
+          Confirm &amp; Submit`;
+      }
     }
 
     // ─── Cancel Preview ────────────────────────────────────────────────────────
