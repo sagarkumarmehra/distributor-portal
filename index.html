@@ -968,6 +968,8 @@
             <svg viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
             <p>No data rows were detected in the uploaded file.</p>
           </div>
+          <!-- TEMP DEBUG — remove after fix confirmed -->
+          <div id="debug-panel" style="display:none; padding:16px; background:#fff8ec; border-top:1px solid #f0d080; font-family:monospace; font-size:12px; color:#555; white-space:pre-wrap; word-break:break-all;"></div>
         </div>
       </div>
 
@@ -1146,14 +1148,21 @@
 
         // Read raw text first, then parse — avoids silent failure from response.json()
         const rawText = await response.text();
-        console.log("[N8N] Status:", response.status);
-        console.log("[N8N] Raw response (first 300 chars):", rawText.substring(0, 300));
+
+        // Write raw response to debug panel so we can diagnose blank-table issue
+        const dbg = document.getElementById('debug-panel');
+        if (dbg) {
+          dbg.style.display = 'block';
+          dbg.textContent = "STATUS: " + response.status
+            + "\nCONTENT-TYPE: " + (response.headers.get('content-type') || 'none')
+            + "\nRAW (first 600 chars):\n" + rawText.substring(0, 600);
+        }
 
         let respData = {};
         try {
           respData = JSON.parse(rawText);
         } catch (parseErr) {
-          console.error("[N8N] JSON parse failed:", parseErr, "| raw:", rawText.substring(0, 200));
+          if (dbg) dbg.textContent += "\n\nJSON PARSE ERROR: " + parseErr;
         }
 
         if (!response.ok) {
@@ -1163,7 +1172,7 @@
 
         // Success — show preview page with extracted rows
         const rows = Array.isArray(respData.rows) ? respData.rows : [];
-        console.log("[N8N] Rows received:", rows.length);
+        if (dbg) dbg.textContent += "\n\nROWS PARSED: " + rows.length;
         setStatus(distId, "loading", "Processing…");
         showPreview({ distId, distName, fileName: file.name, rows });
 
